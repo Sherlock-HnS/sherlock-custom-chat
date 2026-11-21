@@ -17,6 +17,7 @@ surface.CreateFont("CustomChatEntry", {
 })
 
 local L = CustomChat.GetLanguageText
+local SafeString = string.JavascriptSafe
 local PANEL = {}
 
 function PANEL:Init()
@@ -320,7 +321,7 @@ function PANEL:CreateChannel(id, name, icon)
         return channel
     end
 
-    self.history:QueueJavascript("CreateChannel('" .. id .. "');")
+    self.history:QueueJavascript( "CreateChannel('" .. SafeString( id ) .. "');" )
 
     channel = {
         name = name,
@@ -343,7 +344,7 @@ function PANEL:RemoveChannel(id)
         self:NextChannel()
     end
 
-    self.history:QueueJavascript("RemoveChannel('" .. id .. "');")
+    self.history:QueueJavascript( "RemoveChannel('" .. SafeString( id ) .. "');" )
 
     table.RemoveByValue(self.channelIndexes, id)
 
@@ -361,7 +362,7 @@ function PANEL:SetActiveChannel(id)
     self:SetChannelNotificationCount(id, 0)
 
     if self.isChatOpen then
-        self.history:QueueJavascript("SetActiveChannel('" .. id .. "');")
+        self.history:QueueJavascript( "SetActiveChannel('" .. SafeString( id ) .. "');" )
     end
 
     for chid, c in pairs(self.channels) do
