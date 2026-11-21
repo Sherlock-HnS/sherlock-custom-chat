@@ -276,3 +276,6 @@ if CLIENT then
     include( "custom_chat/client/vgui/tag_parts_editor.lua" )
     include( "custom_chat/client/vgui/theme_editor.lua" )
 end
+
+-- The HnS gamemode checks this after autorun in both realms.
+CustomChat.SherlockHNSIntegration = 1
