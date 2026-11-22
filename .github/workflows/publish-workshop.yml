@@ -2,6 +2,14 @@ name: Custom Chat Workshop
 
 on:
   pull_request:
+    paths:
+      - 'addon.json'
+      - 'lua/**'
+      - 'materials/**'
+      - 'resource/**'
+      - 'data_static/**'
+      - 'workshop-preview.png'
+      - '.github/workflows/publish-workshop.yml'
   push:
     branches: [master]
     paths:
@@ -10,11 +18,12 @@ on:
       - 'materials/**'
       - 'resource/**'
       - 'data_static/**'
+      - 'workshop-preview.png'
       - '.github/workflows/publish-workshop.yml'
   workflow_dispatch:
     inputs:
       create_new:
-        description: Criar o primeiro item do addon no Workshop
+        description: Criar um novo item próprio no Workshop
         type: boolean
         default: false
 
@@ -28,62 +37,129 @@ concurrency:
 jobs:
   workshop:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Conferir arquivos do pacote
+      - name: Conferir arquivos do addon
         shell: bash
         run: |
           set -euo pipefail
-          test -f addon.json
+
+          test -s addon.json
+          test -s workshop-preview.png
           test -d lua
           test -d materials
           test -d resource
-          if find . -path './.git' -prune -o -type l -print | grep .; then exit 1; fi
+          test -d data_static
+
+          test -n "$(find lua -type f -name '*.lua' -print -quit)"
+          test -n "$(find materials -type f -print -quit)"
+          test -n "$(find resource -type f -print -quit)"
+          test -n "$(find data_static -type f -print -quit)"
+
+          symlinks="$(find . -path './.git' -prune -o -type l -print -quit)"
+          if [[ -n "$symlinks" ]]; then
+            echo "O repositório contém symlink: $symlinks"
+            echo 'Resolva-o antes de publicar.'
+            exit 1
+          fi
+
+      # Mantém addon.json (tags e regras de ignore), mas exclui README,
+      # workflows, configuração do linter e outros arquivos de desenvolvimento.
+      - name: Preparar conteúdo limpo do Workshop
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_dir="$GITHUB_WORKSPACE/.workshop/addon"
+          rm -rf "$GITHUB_WORKSPACE/.workshop"
+          mkdir -p "$package_dir"
+
+          cp -a addon.json lua materials resource data_static "$package_dir/"
+
+          # Remove metadados locais do macOS que não pertencem ao addon.
+          find "$package_dir" -type f -name '.DS_Store' -delete
+
+          test -s "$package_dir/addon.json"
+          test -d "$package_dir/lua"
+          test -d "$package_dir/materials"
+          test -d "$package_dir/resource"
+          test -d "$package_dir/data_static"
+
+          echo "Arquivos preparados: $(find "$package_dir" -type f | wc -l | tr -d ' ')"
 
       - name: Validar GMA sem enviar à Steam
         uses: linventif/gmod-workshop-cicd@923dae0a327040b2f01cf6876cbecbbb97462bdf
         with:
-          steam_user: ''
-          steam_pass: ''
-          content_path: .
+          # DRY_RUN não inicia sessão Steam; estes valores são apenas placeholders.
+          steam_user: dry-run
+          steam_pass: dry-run
+          content_path: .workshop/addon
           preview_file: workshop-preview.png
           title: Custom Chat
           description: Chat personalizado para o servidor Sherlock HnS.
           dry_run: 'true'
 
       - name: Validar destino da publicação
-        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (vars.WORKSHOP_ID != '' || '2799307109' != ''))
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.WORKSHOP_ID != '')
         env:
-          ITEM: ${{ vars.WORKSHOP_ID || '2799307109' }}
+          ITEM: ${{ vars.WORKSHOP_ID }}
           CREATE: ${{ inputs.create_new }}
+        shell: bash
         run: |
-          set -eu
-          if [ "$CREATE" = true ]; then
-            test -z "${{ vars.WORKSHOP_ID }}" || { echo 'WORKSHOP_ID já configurado'; exit 1; }
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" != "refs/heads/master" ]]; then
+            echo 'A publicação só pode ser executada a partir da branch master.'
+            exit 1
+          fi
+
+          if [[ "$CREATE" == "true" ]]; then
+            [[ -z "$ITEM" ]] || {
+              echo 'WORKSHOP_ID já está configurado; desmarque create_new.'
+              exit 1
+            }
           else
-            [[ "$ITEM" =~ ^[1-9][0-9]*$ ]] || { echo 'Configure WORKSHOP_ID ou use create_new'; exit 1; }
+            [[ "$ITEM" =~ ^[1-9][0-9]*$ ]] || {
+              echo 'Configure a variável WORKSHOP_ID ou marque create_new para criar o item.'
+              exit 1
+            }
           fi
 
       - name: Publicar Custom Chat
         id: publish
-        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (vars.WORKSHOP_ID != '' || '2799307109' != ''))
+        if: github.ref == 'refs/heads/master' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.WORKSHOP_ID != ''))
         uses: linventif/gmod-workshop-cicd@923dae0a327040b2f01cf6876cbecbbb97462bdf
         with:
           steam_user: ${{ secrets.STEAM_USER }}
           steam_pass: ${{ secrets.STEAM_PASS }}
           steam_shared_secret: ${{ secrets.STEAM_SHARED_SECRET }}
-          published_file_id: ${{ inputs.create_new && '0' || (vars.WORKSHOP_ID || '2799307109') }}
-          content_path: .
+          published_file_id: ${{ inputs.create_new && '0' || vars.WORKSHOP_ID }}
+          content_path: .workshop/addon
+          preview_file: workshop-preview.png
           title: Custom Chat
           description: Chat personalizado para o servidor Sherlock HnS.
           visibility: '0'
-          change_note: Atualização do addon Custom Chat
+          change_note: Atualização do Custom Chat (${{ github.sha }})
 
-      - name: Registrar ID da Workshop
+      - name: Registrar resultado da publicação
         if: steps.publish.outcome == 'success'
         env:
           ITEM: ${{ steps.publish.outputs.published_file_id }}
-        run: echo "Workshop ID do Custom Chat = $ITEM" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          {
+            echo "## Custom Chat publicado"
+            echo
+            echo "Workshop ID: [$ITEM](https://steamcommunity.com/sharedfiles/filedetails/?id=$ITEM)"
+            echo
+            echo 'Para as próximas atualizações automáticas, configure a variável de repositório `WORKSHOP_ID` com esse ID.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Informar publicação automática desativada
+        if: github.event_name == 'push' && vars.WORKSHOP_ID == ''
+        run: |
+          echo 'Validação concluída. A publicação automática está desativada até configurar a variável WORKSHOP_ID.' >> "$GITHUB_STEP_SUMMARY"
