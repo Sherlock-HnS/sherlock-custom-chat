@@ -34,9 +34,11 @@ on:
 permissions:
   contents: read
 
+# A fila é compartilhada entre execuções deste repositório; não coordena os outros repositórios.
 concurrency:
   group: workshop-custom-chat-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   workshop:
@@ -44,7 +46,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -95,6 +97,7 @@ jobs:
                       raise SystemExit(0)
               im = im.resize((max(1, int(im.width * .8)), max(1, int(im.height * .8))), Image.Resampling.LANCZOS)
           PY
+
       # Mantém addon.json (tags e regras de ignore), mas exclui README,
       # workflows, configuração do linter e outros arquivos de desenvolvimento.
       - name: Preparar conteúdo limpo do Workshop
@@ -156,6 +159,22 @@ jobs:
               exit 1
             }
           fi
+
+      - name: Conferir acesso da conta Steam
+        if: github.ref == 'refs/heads/master' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.WORKSHOP_ID != ''))
+        env:
+          USER_SET: ${{ secrets.STEAM_USER != '' }}
+          PASS_SET: ${{ secrets.STEAM_PASS != '' }}
+          GUARD_SET: ${{ secrets.STEAM_SHARED_SECRET != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in USER_SET PASS_SET GUARD_SET; do
+            if [[ "${!key}" != true ]]; then
+              echo "::error::Credencial indisponível ($key)"
+              exit 1
+            fi
+          done
 
       - name: Publicar Custom Chat
         id: publish
