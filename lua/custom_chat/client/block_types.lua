@@ -612,7 +612,10 @@ blocks["url"] = function( value, ctx )
     end
 
     local urlType = GetURLType( value )
-    local canEmbed = not dontEmbed and CustomChat.GetConVarInt( "always_allow_embeds", 0 ) > 0
+    local externalEmbedsAllowed = CustomChat.allowExternalEmbeds == true
+    local canEmbed = not dontEmbed and (
+        externalEmbedsAllowed or CustomChat.GetConVarInt( "always_allow_embeds", 0 ) > 0
+    )
     local lastMessage = CustomChat.lastReceivedMessage
 
     if not dontEmbed and lastMessage and IsValid( lastMessage.speaker ) then
